@@ -1,0 +1,284 @@
+---
+title: "Упражнение 8"
+author: "Нестерова А.И."
+date: "20 04 2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Математическое моделирование
+
+### Модели на основе деревьев      
+
+Необходимо построить две модели для прогноза на основе дерева решений:  
+
+* для непрерывной зависимой переменной;
+* для категориальной зависимой переменной.   
+
+Данные и переменные указаны в таблице с вариантами.   
+Ядро генератора случайных чисел -- номер варианта.   
+
+**Задания**
+
+Для каждой модели:   
+
+1. Указать настроечные параметры метода из своего варианта (например: количество узлов, количество предикторов, скорость обучения).
+2. Подогнать модель на обучающей выборке (50% наблюдений). Рассчитать MSE на тестовой выборке.       
+3. Перестроить модель с помощью метода, указанного в варианте.    
+4. Сделать прогноз по модели с подобранными в п.3 параметрами на тестовой выборке, оценить его точность и построить график «прогноз-реализация».    
+
+**Как сдавать:** прислать на почту преподавателя ссылки:
+* на html-отчёт с видимыми блоками кода (блоки кода с параметром echo = T), размещённый на [rpubs.com](rpubs.com).   
+* на код, генерирующий отчёт, в репозитории на [github.com](github.com).
+В текст отчёта включить постановку задачи и ответы на вопросы задания.  
+
+### Вариант - 13
+
+*Модели*: дерево с обрезкой ветвей (настроечный параметр: количество узлов).   
+*Данные*: `Boston {MASS}'.  
+
+# Деревья решений 
+
+```{r, warning = F, message = F}
+# Загрузка пакетов
+library('tree')              # деревья tree()
+library('GGally')            # матричный график разброса ggpairs()
+library('MASS')              # набор данных Boston
+
+# загрузка данных Boston
+data('Boston')
+
+# название столбцов переменных
+names(Boston)
+
+# размерность данных
+dim(Boston)
+
+# ядро генератора случайных чисел
+my.seed <- 13
+```
+
+## Модель 1 (для непрерывной зависимой переменной `crim`)
+
+```{r}
+# ?Boston
+head(Boston)
+
+# матричные графики разброса переменных
+p <- ggpairs(Boston[, c(1, 2:5)])
+suppressMessages(print(p))
+p <- ggpairs(Boston[, c(1, 6:9)])
+suppressMessages(print(p))
+p <- ggpairs(Boston[, c(1, 10:14)])
+suppressMessages(print(p))
+
+# обучающая выборка
+set.seed(my.seed)
+train <- sample(1:nrow(Boston), nrow(Boston)/2) # обучающая выборка -- 50%
+```
+
+Построим дерево регрессии для зависимой переменной `crim`: уровень преступности на душу населения.    
+
+```{r, cache = T}
+# обучаем модель
+tree.boston <- tree(crim ~ ., Boston, subset = train)
+summary(tree.boston)
+
+# визуализация
+plot(tree.boston)
+text(tree.boston, pretty = 0)
+tree.boston                    # посмотреть всё дерево в консоли
+
+# прогноз по модели 
+yhat <- predict(tree.boston, newdata = Boston[-train, ])
+boston.test <- Boston[-train, "crim"]
+
+# MSE на тестовой выборке
+mse.test <- mean((yhat - boston.test)^2)
+names(mse.test)[length(mse.test)] <- 'Boston.regr.tree.all'
+mse.test
+
+# точность прогноза на тестовой выборке
+acc.test <- sum(abs(yhat-boston.test))/sum(boston.test)
+names(acc.test)[length(acc.test)] <- 'Boston.regr.tree.all'
+acc.test
+```
+
+### Дерево с обрезкой ветвей (модель 1)
+
+Cделаем обрезку дерева в целях улучшения качества прогноза.    
+
+```{r, cache = T}
+# обрезка дерева
+cv.boston <- cv.tree(tree.boston)
+
+# размер дерева с минимальной ошибкой
+plot(cv.boston$size, cv.boston$dev, type = 'b')
+opt.size <- cv.boston$size[cv.boston$dev == min(cv.boston$dev)]
+abline(v = opt.size, col = 'red', 'lwd' = 2)     # соотв. вертикальная прямая
+mtext(opt.size, at = opt.size, side = 1, col = 'red', line = 1)
+```
+
+Как видно на графике, минимум частоты ошибок достигается при числе узлов 3. Оценим точность дерева с 3 узлами.
+
+```{r, cache = T}
+# дерево с 3 узлами
+prune.boston = prune.tree(tree.boston, best = 3)
+
+# визуализация
+plot(prune.boston)
+text(prune.boston, pretty = 0)
+
+# прогноз по лучшей модели (3 узла)
+yhat <- predict(prune.boston, newdata = Boston[-train, ])
+boston.test <- Boston[-train, "crim"]
+
+# MSE на тестовой выборке (3 узла)
+mse.test <- c(mse.test, mean((yhat - boston.test)^2))
+names(mse.test)[length(mse.test)] <- 'Boston.regr.tree.3'
+mse.test
+
+# точность прогноза на тестовой выборке (3 узла)
+acc.test <- c(acc.test, sum(abs(yhat-boston.test))/sum(boston.test))
+names(acc.test)[length(acc.test)] <- 'Boston.regr.tree.3'
+acc.test
+
+# график "прогноз -- реализация"
+plot(yhat, boston.test)
+# линия идеального прогноза
+abline(0, 1)
+```
+
+MSE модели (3 узла) на тестовой выборке равна `r round(mse.test['Boston.regr.tree.3'], 2)`, точность прогноза составила `r round(acc.test['Boston.regr.tree.3'], 2)`  
+
+## Модель 2 (для категориальной зависимой переменной `high.crim`)
+
+Загрузим таблицу с данными по стоимости жилья в пригороде Бостона и добавим к ней переменную `high.crim` -- высокий уровень преступности на душу населения со значениями:   
+
+* `1`, если продажи больше 3.5;       
+* `0` - в противном случае.   
+
+```{r, warning = F}
+# новая переменная
+high.crim <- ifelse(Boston$crim <= 3.5, '0', '1')
+
+# присоединяем к таблице данных
+Boston<- cbind(Boston, high.crim)
+
+# название столбцов переменных
+names(Boston)
+
+# размерность данных
+dim(Boston)
+
+# матричные графики разброса переменных
+p <- ggpairs(Boston[, c(15, 1:5)], aes(color = high.crim))
+suppressMessages(print(p))
+p <- ggpairs(Boston[, c(15, 6:10)], aes(color = high.crim))
+suppressMessages(print(p))
+p <- ggpairs(Boston[, c(15, 11:14)], aes(color = high.crim))
+suppressMessages(print(p))
+```
+
+Судя по графикам, класс `0` превосходит по размеру класс`1` по переменной `high.crim` приблизительно в 3 раза. Классы на графиках разброса объясняющих переменных сильно смешаны, поэтому модели с непрерывной разрешающей границей вряд ли работают хорошо. Построим дерево для категориального отклика `high.crim`, отбросив непрерывный отклик `crim` (мы оставили его на первом графике, чтобы проверить, как сработало разделение по значению `crim = 3.5`).    
+
+```{r, cache = T}
+# модель бинарного  дерева
+tree.boston <- tree(high.crim ~ . -crim, Boston)
+summary(tree.boston)
+
+# график результата
+plot(tree.boston)              # ветви
+text(tree.boston, pretty = 0)  # подписи
+tree.boston                    # посмотреть всё дерево в консоли
+```
+
+Теперь построим дерево на обучающей выборке и оценим ошибку на тестовой.   
+
+```{r, cache = T}
+# тестовая выборка
+Boston.test <- Boston[-train,]
+high.crim.test <- high.crim[-train]
+
+# строим дерево на обучающей выборке
+tree.boston <- tree(high.crim ~ . -crim, Boston, subset = train)
+
+# делаем прогноз
+tree.pred <- predict(tree.boston, Boston.test, type = "class")
+
+# матрица неточностей
+tbl <- table(tree.pred, high.crim.test)
+tbl
+
+# ACC на тестовой
+acc.test <- sum(diag(tbl))/sum(tbl)
+names(acc.test)[length(acc.test)] <- 'Boston.class.tree.all'
+acc.test
+```
+
+Обобщённая характеристика точности: доля верных прогнозов: `r round(acc.test, 2)`.  
+
+### Дерево с обрезкой ветвей (модель 2)
+
+Теперь обрезаем дерево, используя в качестве критерия частоту ошибок классификации. Функция `cv.tree()`  проводит кросс-валидацию для выбора лучшего дерева, аргумент `prune.misclass` означает, что мы минимизируем ошибку классификации.   
+
+```{r, cache = T}
+set.seed(my.seed)
+cv.boston <- cv.tree(tree.boston, FUN = prune.misclass)
+
+# имена элементов полученного объекта
+names(cv.boston)
+
+# сам объект
+cv.boston
+
+# графики изменения параметров метода по ходу обрезки дерева ###################
+# 1. ошибка с кросс-валидацией в зависимости от числа узлов
+par(mfrow = c(1, 2))
+plot(cv.boston$size, cv.boston$dev, type = "b",
+     ylab = 'Частота ошибок с кросс-вал. (dev)',
+     xlab = 'Число узлов (size)')
+
+# размер дерева с минимальной ошибкой
+opt.size <- cv.boston$size[cv.boston$dev == min(cv.boston$dev)]
+abline(v = opt.size, col = 'red', 'lwd' = 2)     # соотв. вертикальная прямая
+
+
+# 2. ошибка с кросс-валидацией в зависимости от штрафа на сложность
+plot(cv.boston$k, cv.boston$dev, type = "b",
+     ylab = 'Частота ошибок с кросс-вал. (dev)',
+     xlab = 'Штраф за сложность (k)')
+```
+
+Как видно на графике слева, минимум частоты ошибок достигается при числе узлов 2 и 3. Оценим точность дерева с 2 узлами.
+
+```{r, cache = T}
+# дерево с 2 узлами
+prune.boston = prune.tree(tree.boston, best = 2)
+
+# визуализация
+plot(prune.boston)
+text(prune.boston, pretty = 0)
+
+# прогноз на тестовую выборку
+tree.pred <- predict(prune.boston, Boston.test, type = "class")
+
+# матрица неточностей
+tbl <- table(tree.pred, high.crim.test)
+tbl
+
+# ACC на тестовой
+acc.test <- c(acc.test, sum(diag(tbl))/sum(tbl))
+names(acc.test)[length(acc.test)] <- 'Boston.class.tree.2'
+acc.test
+
+# график "прогноз -- реализация"
+plot(tree.pred, Boston$high.crim[-train])
+```
+
+Точности моделей на тестовой выборке (при двух узлах и максимальном числе узлов) совпадают и равны `r round(acc.test['Boston.class.tree.2'], 2)`. 
